@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>asyncapi_gencpp</name>
+  <version>0.1.0</version>
+  <description>
+    C++ code generator for Async API messages from a specification file.
+  </description>
+
+  <author email="marcalban@hatchbed.com">Marc Alban</author>
+  <maintainer email="marcalban@hatchbed.com">Marc Alban</maintainer>
+
+  <license>BSD-3-Clause</license>
+
+  <buildtool_depend>cmake</buildtool_depend>
+  <build_depend>python3</build_depend>
+  <build_depend>nlohmann-json-dev</build_depend>
+
+  <export>
+    <build_type>cmake</build_type>
+  </export>
+
+</package>

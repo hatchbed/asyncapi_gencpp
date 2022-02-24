@@ -1,0 +1,573 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+from re import sub
+import sys
+import textwrap
+import yaml
+
+typedefs = {}
+components = {}
+
+
+def upper_camel(name):
+    name = sub(r"(_|-)+", " ", name)
+    words = name.split(" ")
+    words = list(map(lambda x: x[0].upper() + x[1:], words))
+    return ''.join(words)
+
+
+def resolve_type(name):
+    resolved = name
+    while resolved in typedefs.keys():
+        resolved = typedefs[resolved]
+    return resolved
+
+
+def resolve_definition(name, definition):
+    resolved = name
+    resolved_definition = definition
+
+    if resolved in components.keys():
+        resolved_definition = components[resolved]
+
+    while resolved in typedefs.keys():
+        resolved = typedefs[resolved]
+        if resolved in components.keys():
+            resolved_definition = components[resolved]
+
+    return resolved_definition
+
+
+def get_property_type(name, definition):
+    cpp_type = None
+    item_type = None
+
+    if "type" not in definition:
+        if "$ref" not in definition:
+            return None, None
+        cpp_type = upper_camel(definition["$ref"].split("/")[-1])
+    if cpp_type is None:
+        prop_type = definition["type"]
+        if prop_type == "string":
+            cpp_type = "std::string"
+        elif prop_type == "integer":
+            cpp_type = "int"
+        elif prop_type == "number":
+            cpp_type = "double"
+        elif prop_type == "boolean":
+            cpp_type = "bool"
+        elif prop_type == "array":
+            if "items" not in definition:
+                return None, None
+            if "$ref" in definition["items"]:
+                item_type = upper_camel(definition["items"]["$ref"].split("/")[-1])
+            elif "type" in definition["items"]:
+                if definition["items"]["type"] == "string":
+                    item_type = "std::string"
+                elif definition["items"]["type"] == "integer":
+                    item_type = "int"
+                elif definition["items"]["type"] == "integer":
+                    item_type = "int"
+                elif definition["items"]["type"] == "boolean":
+                    item_type = "bool"
+                elif definition["items"]["type"] == "object":
+                    item_type = upper_camel(name) + "Item"
+            if item_type is None:
+                return None, None
+            cpp_type = "std::vector<{}>".format(item_type)
+        elif prop_type == "object":
+            cpp_type = upper_camel(name)
+
+    return cpp_type, item_type
+
+
+def init_typedefs(name, definition):
+    class_name = upper_camel(name)
+    base_type = None
+    typedef = None
+    if "schema" in definition:
+        if "$ref" in definition["schema"]:
+            typedef = upper_camel(definition["schema"]["$ref"].split("/")[-1])
+        elif "type" in definition["schema"]:
+            base_type = definition["schema"]
+    if typedef is None and base_type is None and "type" in definition:
+        base_type = definition
+    if base_type is not None:
+        if base_type["type"] == "string":
+            typedef = "std::string"
+        elif base_type["type"] == "integer":
+            typedef = "int"
+        elif base_type["type"] == "number":
+            typedef = "double"
+        elif base_type["type"] == "boolean":
+            typedef = "bool"
+        elif base_type["type"] == "array":
+            # TODO
+            pass
+    if typedef is not None:
+        typedefs[class_name] = typedef
+
+
+def build_object(name, definition, prefix, all_required=False):
+    headers = ["#include <optional>", "#include <string>"]
+    lines = []
+    required = []
+    inner = []
+    members = []
+    properties = {}
+
+    if "required" in definition:
+        required = definition["required"]
+
+    if "properties" in definition:
+        properties = definition["properties"]
+
+    for prop_name, prop_def in properties.items():
+        prop_required = prop_name in required or all_required
+        cpp_type = None
+        item_type = None
+        if "type" not in prop_def:
+            if "$ref" not in prop_def:
+                continue
+            cpp_type = upper_camel(prop_def["$ref"].split("/")[-1])
+            headers.append("#include <{}/{}.h>".format(prefix, cpp_type))
+        if cpp_type is None:
+            prop_type = prop_def["type"]
+            if prop_type == "string":
+                cpp_type = "std::string"
+                headers.append("#include <string>")
+            elif prop_type == "integer":
+                cpp_type = "int"
+            elif prop_type == "number":
+                cpp_type = "double"
+            elif prop_type == "boolean":
+                cpp_type = "bool"
+            elif prop_type == "array":
+                if "items" not in prop_def:
+                    continue
+                if "$ref" in prop_def["items"]:
+                    item_type = upper_camel(prop_def["items"]["$ref"].split("/")[-1])
+                    headers.append("#include <{}/{}.h>".format(prefix, item_type))
+                elif "type" in prop_def["items"]:
+                    if prop_def["items"]["type"] == "string":
+                        item_type = "std::string"
+                        headers.append("#include <string>")
+                    elif prop_def["items"]["type"] == "integer":
+                        item_type = "int"
+                    elif prop_def["items"]["type"] == "number":
+                        item_type = "double"
+                    elif prop_def["items"]["type"] == "boolean":
+                        item_type = "bool"
+                    elif prop_def["items"]["type"] == "object":
+                        item_type = upper_camel(prop_name) + "Item"
+                        sub_lines, sub_headers = build_object(item_type, prop_def["items"], prefix)
+                        inner = inner + sub_lines
+                        headers = headers + sub_headers
+                if item_type is None:
+                    continue
+                headers.append("#include <vector>")
+                cpp_type = "std::vector<{}>".format(item_type)
+            elif prop_type == "object":
+                cpp_type = upper_camel(prop_name)
+                sub_lines, sub_headers = build_object(cpp_type, prop_def, prefix)
+                sub_lines = list(map(lambda x: "  {}".format(x), sub_lines))
+                inner = inner + sub_lines
+                headers = headers + sub_headers
+
+        if cpp_type is not None:
+            if not prop_required and item_type is None:
+                cpp_type = "std::optional<{}>".format(cpp_type)
+            members.append("  {} {};".format(cpp_type, prop_name))
+
+    inner = list(map(lambda x: "  {}".format(x), inner))
+
+    lines.append("struct {} {{".format(name))
+    lines = lines + inner
+    lines = lines + members
+
+    lines.append("")
+    lines.append("  bool isValid() const {")
+
+    for prop_name, prop_def in properties.items():
+        prop_type, item_type = get_property_type(prop_name, prop_def)
+        if prop_type is None:
+            continue
+
+        resolved_def = resolve_definition(prop_type, prop_def)
+        prop_type = resolve_type(prop_type)
+        if item_type is not None:
+            lines.append("    for (const auto& item: {}) {{".format(prop_name))
+            item_def = resolve_definition(item_type, resolved_def["items"])
+            item_type = resolve_type(item_type)
+            if item_type == "std::string":
+                if "maxLength" in item_def:
+                    lines.append("      if (item.length() > {}) {{".format(item_def["maxLength"]))
+                    lines.append("        return false;")
+                    lines.append("      }")
+                if "minLength" in item_def:
+                    lines.append("      if (item.length() < {}) {{".format(item_def["minLength"]))
+                    lines.append("        return false;")
+                    lines.append("      }")
+                if "enum" in item_def:
+                    lines.append("      bool in_enum = false;")
+
+                    if len(item_def["enum"]) > 0:
+                        lines.append('      if (item == "{}") {{'.format(item_def["enum"][0]))
+                        lines.append("        in_enum = true;")
+                        lines.append("      }")
+                        for enum in item_def["enum"][1:]:
+                            lines.append('      else if (item == "{}") {{'.format(enum))
+                            lines.append("        in_enum = true;")
+                            lines.append("      }")
+                    lines.append("      if (!in_enum) {")
+                    lines.append("        return false;")
+                    lines.append("      }")
+            elif item_type == "int" or item_type == "double":
+                if "maximum" in item_def:
+                    lines.append("      if (item > {}) {{".format(item_def["maximum"]))
+                    lines.append("        return false;")
+                    lines.append("      }")
+                if "minimum" in item_def:
+                    lines.append("      if (item < {}) {{".format(item_def["minimum"]))
+                    lines.append("        return false;")
+                    lines.append("      }")
+            elif item_type == "bool":
+                pass
+            else:
+                lines.append("      if (!item.isValid()) {")
+                lines.append("        return false;")
+                lines.append("      }")
+            lines.append("    }")
+        elif prop_name in required or all_required:
+            if prop_type == "std::string":
+                if "maxLength" in resolved_def:
+                    lines.append("    if ({}.length() > {}) {{".format(prop_name, resolved_def["maxLength"]))
+                    lines.append("      return false;")
+                    lines.append("    }")
+                if "minLength" in resolved_def:
+                    lines.append("    if ({}.length() < {}) {{".format(prop_name, resolved_def["minLength"]))
+                    lines.append("      return false;")
+                    lines.append("    }")
+                if "enum" in resolved_def:
+                    lines.append("    bool _{}_in_enum = false;".format(prop_name))
+
+                    if len(resolved_def["enum"]) > 0:
+                        lines.append('    if ({} == "{}") {{'.format(prop_name, resolved_def["enum"][0]))
+                        lines.append("      _{}_in_enum = true;".format(prop_name))
+                        lines.append("    }")
+                        for enum in resolved_def["enum"][1:]:
+                            lines.append('    else if ({} == "{}") {{'.format(prop_name, enum))
+                            lines.append("      _{}_in_enum = true;".format(prop_name))
+                            lines.append("    }")
+                    lines.append("    if (!_{}_in_enum) {{".format(prop_name))
+                    lines.append("      return false;")
+                    lines.append("    }")
+            elif prop_type == "int" or prop_type == "double":
+                if "maximum" in resolved_def:
+                    lines.append("    if ({} > {}) {{".format(prop_name, resolved_def["maximum"]))
+                    lines.append("      return false;")
+                    lines.append("    }")
+                if "minimum" in resolved_def:
+                    lines.append("    if ({} < {}) {{".format(prop_name, resolved_def["minimum"]))
+                    lines.append("      return false;")
+                    lines.append("    }")
+            elif prop_type == "bool":
+                pass
+            else:
+                lines.append("    if (!{}.isValid()) {{".format(prop_name))
+                lines.append("      return false;")
+                lines.append("    }")
+        else:
+            lines.append("    if ({}) {{".format(prop_name))
+            if prop_type == "std::string":
+                if "maxLength" in resolved_def:
+                    lines.append("      if ({}->length() > {}) {{".format(prop_name, resolved_def["maxLength"]))
+                    lines.append("        return false;")
+                    lines.append("      }")
+                if "minLength" in resolved_def:
+                    lines.append("      if ({}->length() < {}) {{".format(prop_name, resolved_def["minLength"]))
+                    lines.append("        return false;")
+                    lines.append("      }")
+                if "enum" in resolved_def:
+                    lines.append("      bool in_enum = false;")
+
+                    if len(resolved_def["enum"]) > 0:
+                        lines.append('      if (*{} == "{}") {{'.format(prop_name, resolved_def["enum"][0]))
+                        lines.append("        in_enum = true;")
+                        lines.append("      }")
+                        for enum in resolved_def["enum"][1:]:
+                            lines.append('      else if (*{} == "{}") {{'.format(prop_name, enum))
+                            lines.append("        in_enum = true;")
+                            lines.append("      }")
+                    lines.append("      if (!in_enum) {")
+                    lines.append("        return false;")
+                    lines.append("      }")
+            elif prop_type == "int" or prop_type == "double":
+                if "maximum" in resolved_def:
+                    lines.append("      if (*{} > {}) {{".format(prop_name, resolved_def["maximum"]))
+                    lines.append("        return false;")
+                    lines.append("      }")
+                if "minimum" in resolved_def:
+                    lines.append("      if (*{} < {}) {{".format(prop_name, resolved_def["minimum"]))
+                    lines.append("        return false;")
+                    lines.append("      }")
+            elif prop_type == "bool":
+                pass
+            else:
+                lines.append("      if (!{}->isValid()) {{".format(prop_name))
+                lines.append("        return false;")
+                lines.append("      }")
+            lines.append("    }")
+
+    lines.append("    return true;")
+    lines.append("  }")
+
+    lines.append("")
+    lines.append("  json toJson() const {")
+    lines.append("    json j;")
+
+    for prop_name, prop_def in properties.items():
+        prop_type, item_type = get_property_type(prop_name, prop_def)
+        if prop_type is None:
+            continue
+
+        prop_type = resolve_type(prop_type)
+        if item_type is not None:
+            item_type = resolve_type(item_type)
+            lines.append("    json _{} = json::array();".format(prop_name))
+            lines.append("    for (const auto& item: {}) {{".format(prop_name))
+            if item_type == "std::string" or item_type == "int" or item_type == "double" or item_type == "bool":
+                lines.append("      json json_item = item;")
+            else:
+                lines.append("      json json_item = item.toJson();")
+            lines.append("      _{}.push_back(json_item);".format(prop_name))
+            lines.append("    }")
+            lines.append('    j["{}"] = _{};'.format(prop_name, prop_name))
+        elif prop_name in required or all_required:
+            if prop_type == "std::string" or prop_type == "int" or prop_type == "double" or prop_type == "bool":
+                lines.append('    j["{}"] = {};'.format(prop_name, prop_name))
+            else:
+                lines.append('    j["{}"] = {}.toJson();'.format(prop_name, prop_name))
+        else:
+            lines.append("    if ({}) {{".format(prop_name))
+            if prop_type == "std::string" or prop_type == "int" or prop_type == "double" or prop_type == "bool":
+                lines.append('      j["{}"] = *{};'.format(prop_name, prop_name))
+            else:
+                lines.append('    j["{}"] = {}->toJson();'.format(prop_name, prop_name))
+            lines.append("    }")
+
+    lines.append("    return j;")
+    lines.append("  }")
+
+    lines.append("")
+    lines.append("  std::string dump(bool formatted=false) const {")
+    lines.append("    auto j = *this;")
+    lines.append("    if (formatted) {")
+    lines.append("      return j.dump(4);")
+    lines.append("    }")
+    lines.append("    else {")
+    lines.append("      return j.dump();")
+    lines.append("    }")
+    lines.append("  }")
+
+    lines.append("")
+    lines.append("  static std::optional<{}> fromJson(const json& j) {{".format(name))
+    lines.append("    {} _out;".format(name))
+
+    for prop_name, prop_def in properties.items():
+        prop_type, item_type = get_property_type(prop_name, prop_def)
+        if prop_type is None:
+            continue
+
+        if prop_name in required or all_required:
+            lines.append('    if (!j.contains("{}")) {{'.format(prop_name))
+            lines.append("      return {};")
+            lines.append("    }")
+        else:
+            lines.append('    if (!j.contains("{}")) {{'.format(prop_name))
+            lines.append("      _out.{} = {{}};".format(prop_name))
+            lines.append("    }")
+        lines.append("    else {")
+        
+        lines.append("      try {")
+
+        if item_type is None:
+            prop_type = resolve_type(prop_type)
+            if prop_name in required or all_required:
+                if prop_type == "std::string" or prop_type == "int" or prop_type == "double" or prop_type == "bool":
+                    lines.append('         _out.{} = j["{}"].get<{}>();'.format(prop_name, prop_name, prop_type))
+                else:
+                    lines.append('        auto _{} = {}::fromJson(j["{}"]);'.format(prop_name, prop_type, prop_name))
+                    lines.append("        if (!_{}) {{".format(prop_name))
+                    lines.append("          return {};")
+                    lines.append("        }")
+                    lines.append("        _out.{} = *_{};".format(prop_name, prop_name))
+        else:
+            item_type = resolve_type(item_type)
+            lines.append('        if (!j["{}"].is_array()) {{'.format(prop_name))
+            lines.append('          return {};')
+            lines.append('        };')
+            lines.append('        for (const auto& item: j["{}"]) {{'.format(prop_name))
+            if item_type == "std::string":
+                lines.append('          _out.{}.push_back(item.get<std::string>());'.format(prop_name))
+            elif item_type == "int":
+                lines.append('          _out.{}.push_back(item.get<int>());'.format(prop_name))
+            elif item_type == "double":
+                lines.append('          _out.{}.push_back(item.get<double>());'.format(prop_name))
+            elif item_type == "bool":
+                lines.append('          _out.{}.push_back(item.get<bool>());'.format(prop_name))
+            else:
+                lines.append('          auto _{}_item = {}::fromJson(item);'.format(prop_name, item_type))
+                lines.append("          if (!_{}_item) {{".format(prop_name))
+                lines.append("            return {};")
+                lines.append("          }")
+                lines.append("          _out.{}.push_back(*_{}_item);".format(prop_name, prop_name))
+            lines.append('        }')
+
+        lines.append("      }")
+        lines.append("      catch (const std::runtime_error& error) {")
+        lines.append("        return {};")
+        lines.append("      }")
+
+        lines.append("    }")
+
+    lines.append("    return _out;")
+    lines.append("  }")
+
+    lines.append("")
+    lines.append("  static std::optional<{}> fromJson(const std::string& s) {{".format(name))
+    lines.append("    return fromJson(json::parse(s));")
+    lines.append("  }")
+
+    lines.append("};\n")
+    return lines, list(set(headers))
+
+
+def build_header(name, definition, prefix):
+    lines = []
+    top_matter = []
+    top_matter.append("#pragma once")
+    top_matter.append("\n/* This file was auto-generated. */\n")
+    headers = ["#include <nlohmann/json.hpp>"]
+
+    lines.append("using json = nlohmann::json;")
+
+    namespace = prefix.replace('/', '::')
+    lines.append('namespace {} {{\n'.format(namespace))
+
+    class_name = upper_camel(name)
+    if "description" in definition:
+        description = str(definition["description"])
+        description = '\n * '.join(textwrap.wrap(description, width=80, replace_whitespace=True))
+        lines.append("/**")
+        lines.append(" * {}".format(description))
+        lines.append(" */")
+    base_type = None
+    typedef = None
+    if "schema" in definition:
+        if "$ref" in definition["schema"]:
+            typedef = upper_camel(definition["schema"]["$ref"].split("/")[-1])
+            headers.append("#include  <{}/{}.h>".format(prefix, typedef))
+        elif "type" in definition["schema"]:
+            base_type = definition["schema"]
+    if typedef is None and base_type is None and "type" in definition:
+        base_type = definition
+    if base_type is not None:
+        if base_type["type"] == "string":
+            typedef = "std::string"
+            headers.append("#include  <string>")
+        elif base_type["type"] == "integer":
+            typedef = "int"
+        elif base_type["type"] == "number":
+            typedef = "double"
+        elif base_type["type"] == "boolean":
+            typedef = "bool"
+        elif base_type["type"] == "array":
+            # TODO
+            pass
+    if typedef is not None:
+        lines.append("typedef {} {};".format(typedef, class_name))
+        typedefs[class_name] = typedef
+    elif base_type is not None and base_type["type"] == "object":
+        class_def, class_headers = build_object(class_name, base_type, prefix)
+        lines = lines + class_def
+        headers = headers + class_headers
+    else:
+        base_type = {'properties': definition}
+        class_def, class_headers = build_object(class_name, base_type, prefix, all_required=True)
+        lines = lines + class_def
+        headers = headers + class_headers
+
+    headers = list(set(headers))
+    headers.sort()
+
+    lines.append('}}  // namespace {}'.format(namespace))
+
+    if len(headers) > 0:
+        headers.append('')
+        lines = headers + lines
+
+    return top_matter + lines
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("spec", help="AsyncAPI specification file")
+    parser.add_argument("prefix", help="Include file prefix")
+    parser.add_argument("outdir", help="Output directory")
+
+    args = parser.parse_args()
+    specfile = args.spec
+    outdir = args.outdir
+
+    if not os.path.exists(specfile):
+        sys.exit('AsyncAPI specification file: [{}] does not exist'.format(specfile))
+
+    if not os.path.isdir(outdir):
+        sys.exit('Output directory: [{}] does not exist'.format(outdir))
+
+    spec = None
+    with open(specfile, "r") as f:
+        try:
+            spec = yaml.safe_load(f)
+        except yaml.YAMLError as exc:
+            sys.exit('Failed to parse AsyncAPI specification file:\n{}'.format(exc))
+
+    if "components" not in spec.keys():
+        print("No components to generate.")
+        sys.exit(0)
+
+    schemas = {}
+    if "schemas" in spec["components"]:
+        schemas = spec["components"]["schemas"]
+
+    messages = {}
+    if "messages" in spec["components"]:
+        schemas.update(spec["components"]["messages"])
+
+    prefix_dir = os.path.join(outdir, args.prefix)
+    os.makedirs(prefix_dir, exist_ok=True)
+
+    total_lines = 0
+
+    # pre-initialize typedefs
+    for name, definition in schemas.items():
+        init_typedefs(name, definition)
+        class_name = upper_camel(name)
+        components[class_name] = definition
+
+    for name, definition in schemas.items():
+        header_src = build_header(name, definition, args.prefix)
+        class_name = upper_camel(name)
+        header_path = os.path.join(prefix_dir, class_name + ".h")
+
+        with open(header_path, 'w') as f:
+            src = '\n'.join(header_src)
+            f.write(src)
+            #print(src)
+            length = len(src.splitlines())
+            total_lines = total_lines + length
+
+    print("\n\n Total lines generated: {}".format(total_lines))
