@@ -18,6 +18,13 @@ def upper_camel(name):
     return ''.join(words)
 
 
+def snake_case(name):
+    name = sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+    name = sub('__([A-Z])', r'_\1', name)
+    name = sub('([a-z0-9])([A-Z])', r'\1_\2', name)
+    return name.lower()
+
+
 def resolve_type(name):
     resolved = name
     while resolved in typedefs.keys():
@@ -125,6 +132,7 @@ def build_object(name, definition, prefix, all_required=False):
         properties = definition["properties"]
 
     for prop_name, prop_def in properties.items():
+        prop_name_snake = snake_case(prop_name)
         prop_required = prop_name in required or all_required
         cpp_type = None
         item_type = None
@@ -179,7 +187,7 @@ def build_object(name, definition, prefix, all_required=False):
         if cpp_type is not None:
             if not prop_required and item_type is None:
                 cpp_type = "std::optional<{}>".format(cpp_type)
-            members.append("  {} {};".format(cpp_type, prop_name))
+            members.append("  {} {};".format(cpp_type, prop_name_snake))
 
     inner = list(map(lambda x: "  {}".format(x), inner))
 
@@ -191,6 +199,7 @@ def build_object(name, definition, prefix, all_required=False):
     lines.append("  bool isValid() const {")
 
     for prop_name, prop_def in properties.items():
+        prop_name_snake = snake_case(prop_name)
         prop_type, item_type = get_property_type(prop_name, prop_def)
         if prop_type is None:
             continue
@@ -198,7 +207,7 @@ def build_object(name, definition, prefix, all_required=False):
         resolved_def = resolve_definition(prop_type, prop_def)
         prop_type = resolve_type(prop_type)
         if item_type is not None:
-            lines.append("    for (const auto& item: {}) {{".format(prop_name))
+            lines.append("    for (const auto& item: {}) {{".format(prop_name_snake))
             item_def = resolve_definition(item_type, resolved_def["items"])
             item_type = resolve_type(item_type)
             if item_type == "std::string":
@@ -243,62 +252,62 @@ def build_object(name, definition, prefix, all_required=False):
         elif prop_name in required or all_required:
             if prop_type == "std::string":
                 if "maxLength" in resolved_def:
-                    lines.append("    if ({}.length() > {}) {{".format(prop_name, resolved_def["maxLength"]))
+                    lines.append("    if ({}.length() > {}) {{".format(prop_name_snake, resolved_def["maxLength"]))
                     lines.append("      return false;")
                     lines.append("    }")
                 if "minLength" in resolved_def:
-                    lines.append("    if ({}.length() < {}) {{".format(prop_name, resolved_def["minLength"]))
+                    lines.append("    if ({}.length() < {}) {{".format(prop_name_snake, resolved_def["minLength"]))
                     lines.append("      return false;")
                     lines.append("    }")
                 if "enum" in resolved_def:
-                    lines.append("    bool _{}_in_enum = false;".format(prop_name))
+                    lines.append("    bool _{}_in_enum = false;".format(prop_name_snake))
 
                     if len(resolved_def["enum"]) > 0:
-                        lines.append('    if ({} == "{}") {{'.format(prop_name, resolved_def["enum"][0]))
-                        lines.append("      _{}_in_enum = true;".format(prop_name))
+                        lines.append('    if ({} == "{}") {{'.format(prop_name_snake, resolved_def["enum"][0]))
+                        lines.append("      _{}_in_enum = true;".format(prop_name_snake))
                         lines.append("    }")
                         for enum in resolved_def["enum"][1:]:
-                            lines.append('    else if ({} == "{}") {{'.format(prop_name, enum))
-                            lines.append("      _{}_in_enum = true;".format(prop_name))
+                            lines.append('    else if ({} == "{}") {{'.format(prop_name_snake, enum))
+                            lines.append("      _{}_in_enum = true;".format(prop_name_snake))
                             lines.append("    }")
-                    lines.append("    if (!_{}_in_enum) {{".format(prop_name))
+                    lines.append("    if (!_{}_in_enum) {{".format(prop_name_snake))
                     lines.append("      return false;")
                     lines.append("    }")
             elif prop_type == "int" or prop_type == "double":
                 if "maximum" in resolved_def:
-                    lines.append("    if ({} > {}) {{".format(prop_name, resolved_def["maximum"]))
+                    lines.append("    if ({} > {}) {{".format(prop_name_snake, resolved_def["maximum"]))
                     lines.append("      return false;")
                     lines.append("    }")
                 if "minimum" in resolved_def:
-                    lines.append("    if ({} < {}) {{".format(prop_name, resolved_def["minimum"]))
+                    lines.append("    if ({} < {}) {{".format(prop_name_snake, resolved_def["minimum"]))
                     lines.append("      return false;")
                     lines.append("    }")
             elif prop_type == "bool":
                 pass
             else:
-                lines.append("    if (!{}.isValid()) {{".format(prop_name))
+                lines.append("    if (!{}.isValid()) {{".format(prop_name_snake))
                 lines.append("      return false;")
                 lines.append("    }")
         else:
-            lines.append("    if ({}) {{".format(prop_name))
+            lines.append("    if ({}) {{".format(prop_name_snake))
             if prop_type == "std::string":
                 if "maxLength" in resolved_def:
-                    lines.append("      if ({}->length() > {}) {{".format(prop_name, resolved_def["maxLength"]))
+                    lines.append("      if ({}->length() > {}) {{".format(prop_name_snake, resolved_def["maxLength"]))
                     lines.append("        return false;")
                     lines.append("      }")
                 if "minLength" in resolved_def:
-                    lines.append("      if ({}->length() < {}) {{".format(prop_name, resolved_def["minLength"]))
+                    lines.append("      if ({}->length() < {}) {{".format(prop_name_snake, resolved_def["minLength"]))
                     lines.append("        return false;")
                     lines.append("      }")
                 if "enum" in resolved_def:
                     lines.append("      bool in_enum = false;")
 
                     if len(resolved_def["enum"]) > 0:
-                        lines.append('      if (*{} == "{}") {{'.format(prop_name, resolved_def["enum"][0]))
+                        lines.append('      if (*{} == "{}") {{'.format(prop_name_snake, resolved_def["enum"][0]))
                         lines.append("        in_enum = true;")
                         lines.append("      }")
                         for enum in resolved_def["enum"][1:]:
-                            lines.append('      else if (*{} == "{}") {{'.format(prop_name, enum))
+                            lines.append('      else if (*{} == "{}") {{'.format(prop_name_snake, enum))
                             lines.append("        in_enum = true;")
                             lines.append("      }")
                     lines.append("      if (!in_enum) {")
@@ -306,17 +315,17 @@ def build_object(name, definition, prefix, all_required=False):
                     lines.append("      }")
             elif prop_type == "int" or prop_type == "double":
                 if "maximum" in resolved_def:
-                    lines.append("      if (*{} > {}) {{".format(prop_name, resolved_def["maximum"]))
+                    lines.append("      if (*{} > {}) {{".format(prop_name_snake, resolved_def["maximum"]))
                     lines.append("        return false;")
                     lines.append("      }")
                 if "minimum" in resolved_def:
-                    lines.append("      if (*{} < {}) {{".format(prop_name, resolved_def["minimum"]))
+                    lines.append("      if (*{} < {}) {{".format(prop_name_snake, resolved_def["minimum"]))
                     lines.append("        return false;")
                     lines.append("      }")
             elif prop_type == "bool":
                 pass
             else:
-                lines.append("      if (!{}->isValid()) {{".format(prop_name))
+                lines.append("      if (!{}->isValid()) {{".format(prop_name_snake))
                 lines.append("        return false;")
                 lines.append("      }")
             lines.append("    }")
@@ -329,6 +338,7 @@ def build_object(name, definition, prefix, all_required=False):
     lines.append("    json j;")
 
     for prop_name, prop_def in properties.items():
+        prop_name_snake = snake_case(prop_name)
         prop_type, item_type = get_property_type(prop_name, prop_def)
         if prop_type is None:
             continue
@@ -336,26 +346,26 @@ def build_object(name, definition, prefix, all_required=False):
         prop_type = resolve_type(prop_type)
         if item_type is not None:
             item_type = resolve_type(item_type)
-            lines.append("    json _{} = json::array();".format(prop_name))
-            lines.append("    for (const auto& item: {}) {{".format(prop_name))
+            lines.append("    json _{} = json::array();".format(prop_name_snake))
+            lines.append("    for (const auto& item: {}) {{".format(prop_name_snake))
             if item_type == "std::string" or item_type == "int" or item_type == "double" or item_type == "bool":
                 lines.append("      json json_item = item;")
             else:
                 lines.append("      json json_item = item.toJson();")
-            lines.append("      _{}.push_back(json_item);".format(prop_name))
+            lines.append("      _{}.push_back(json_item);".format(prop_name_snake))
             lines.append("    }")
-            lines.append('    j["{}"] = _{};'.format(prop_name, prop_name))
+            lines.append('    j["{}"] = _{};'.format(prop_name, prop_name_snake))
         elif prop_name in required or all_required:
             if prop_type == "std::string" or prop_type == "int" or prop_type == "double" or prop_type == "bool":
-                lines.append('    j["{}"] = {};'.format(prop_name, prop_name))
+                lines.append('    j["{}"] = {};'.format(prop_name, prop_name_snake))
             else:
-                lines.append('    j["{}"] = {}.toJson();'.format(prop_name, prop_name))
+                lines.append('    j["{}"] = {}.toJson();'.format(prop_name, prop_name_snake))
         else:
-            lines.append("    if ({}) {{".format(prop_name))
+            lines.append("    if ({}) {{".format(prop_name_snake))
             if prop_type == "std::string" or prop_type == "int" or prop_type == "double" or prop_type == "bool":
-                lines.append('      j["{}"] = *{};'.format(prop_name, prop_name))
+                lines.append('      j["{}"] = *{};'.format(prop_name, prop_name_snake))
             else:
-                lines.append('    j["{}"] = {}->toJson();'.format(prop_name, prop_name))
+                lines.append('    j["{}"] = {}->toJson();'.format(prop_name, prop_name_snake))
             lines.append("    }")
 
     lines.append("    return j;")
@@ -377,6 +387,7 @@ def build_object(name, definition, prefix, all_required=False):
     lines.append("    {} _out;".format(name))
 
     for prop_name, prop_def in properties.items():
+        prop_name_snake = snake_case(prop_name)
         prop_type, item_type = get_property_type(prop_name, prop_def)
         if prop_type is None:
             continue
@@ -387,7 +398,7 @@ def build_object(name, definition, prefix, all_required=False):
             lines.append("    }")
         else:
             lines.append('    if (!j.contains("{}")) {{'.format(prop_name))
-            lines.append("      _out.{} = {{}};".format(prop_name))
+            lines.append("      _out.{} = {{}};".format(prop_name_snake))
             lines.append("    }")
         lines.append("    else {")
         
@@ -397,13 +408,13 @@ def build_object(name, definition, prefix, all_required=False):
             prop_type = resolve_type(prop_type)
             if prop_name in required or all_required:
                 if prop_type == "std::string" or prop_type == "int" or prop_type == "double" or prop_type == "bool":
-                    lines.append('         _out.{} = j["{}"].get<{}>();'.format(prop_name, prop_name, prop_type))
+                    lines.append('         _out.{} = j["{}"].get<{}>();'.format(prop_name_snake, prop_name, prop_type))
                 else:
-                    lines.append('        auto _{} = {}::fromJson(j["{}"]);'.format(prop_name, prop_type, prop_name))
-                    lines.append("        if (!_{}) {{".format(prop_name))
+                    lines.append('        auto _{} = {}::fromJson(j["{}"]);'.format(prop_name_snake, prop_type, prop_name))
+                    lines.append("        if (!_{}) {{".format(prop_name_snake))
                     lines.append("          return {};")
                     lines.append("        }")
-                    lines.append("        _out.{} = *_{};".format(prop_name, prop_name))
+                    lines.append("        _out.{} = *_{};".format(prop_name_snake, prop_name_snake))
         else:
             item_type = resolve_type(item_type)
             lines.append('        if (!j["{}"].is_array()) {{'.format(prop_name))
@@ -411,19 +422,19 @@ def build_object(name, definition, prefix, all_required=False):
             lines.append('        };')
             lines.append('        for (const auto& item: j["{}"]) {{'.format(prop_name))
             if item_type == "std::string":
-                lines.append('          _out.{}.push_back(item.get<std::string>());'.format(prop_name))
+                lines.append('          _out.{}.push_back(item.get<std::string>());'.format(prop_name_snake))
             elif item_type == "int":
-                lines.append('          _out.{}.push_back(item.get<int>());'.format(prop_name))
+                lines.append('          _out.{}.push_back(item.get<int>());'.format(prop_name_snake))
             elif item_type == "double":
-                lines.append('          _out.{}.push_back(item.get<double>());'.format(prop_name))
+                lines.append('          _out.{}.push_back(item.get<double>());'.format(prop_name_snake))
             elif item_type == "bool":
-                lines.append('          _out.{}.push_back(item.get<bool>());'.format(prop_name))
+                lines.append('          _out.{}.push_back(item.get<bool>());'.format(prop_name_snake))
             else:
-                lines.append('          auto _{}_item = {}::fromJson(item);'.format(prop_name, item_type))
-                lines.append("          if (!_{}_item) {{".format(prop_name))
+                lines.append('          auto _{}_item = {}::fromJson(item);'.format(prop_name_snake, item_type))
+                lines.append("          if (!_{}_item) {{".format(prop_name_snake))
                 lines.append("            return {};")
                 lines.append("          }")
-                lines.append("          _out.{}.push_back(*_{}_item);".format(prop_name, prop_name))
+                lines.append("          _out.{}.push_back(*_{}_item);".format(prop_name_snake, prop_name_snake))
             lines.append('        }')
 
         lines.append("      }")
