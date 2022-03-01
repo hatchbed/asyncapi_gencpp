@@ -373,7 +373,7 @@ def build_object(name, definition, prefix, all_required=False):
 
     lines.append("")
     lines.append("  std::string dump(bool formatted=false) const {")
-    lines.append("    auto j = *this;")
+    lines.append("    auto j = toJson();")
     lines.append("    if (formatted) {")
     lines.append("      return j.dump(4);")
     lines.append("    }")
@@ -457,6 +457,16 @@ def build_object(name, definition, prefix, all_required=False):
 
 
 def build_header(name, definition, prefix):
+
+    description = ""
+    if "summary" in definition:
+        description = str(definition["summary"])
+
+    if "description" in definition:
+        if len(description) > 0:
+            description = description + "\n"
+        description = description + str(definition["description"])
+
     lines = []
     top_matter = []
     top_matter.append("#pragma once")
@@ -469,9 +479,8 @@ def build_header(name, definition, prefix):
     lines.append('namespace {} {{\n'.format(namespace))
 
     class_name = upper_camel(name)
-    if "description" in definition:
-        description = str(definition["description"])
-        description = '\n * '.join(textwrap.wrap(description, width=80, replace_whitespace=True))
+    if len(description) > 0:
+        description = '\n * '.join(textwrap.wrap(description, width=77, replace_whitespace=True))
         lines.append("/**")
         lines.append(" * {}".format(description))
         lines.append(" */")
@@ -554,7 +563,6 @@ if __name__ == "__main__":
     if "schemas" in spec["components"]:
         schemas = spec["components"]["schemas"]
 
-    messages = {}
     if "messages" in spec["components"]:
         schemas.update(spec["components"]["messages"])
 
@@ -569,15 +577,14 @@ if __name__ == "__main__":
         class_name = upper_camel(name)
         components[class_name] = definition
 
+    # generate headers
     for name, definition in schemas.items():
         header_src = build_header(name, definition, args.prefix)
         class_name = upper_camel(name)
         header_path = os.path.join(prefix_dir, class_name + ".h")
-
         with open(header_path, 'w') as f:
             src = '\n'.join(header_src)
             f.write(src)
-            #print(src)
             length = len(src.splitlines())
             total_lines = total_lines + length
 
