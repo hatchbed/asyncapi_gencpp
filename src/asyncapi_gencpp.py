@@ -118,7 +118,7 @@ def init_typedefs(name, definition):
 
 
 def build_object(name, definition, prefix, all_required=False):
-    headers = ["#include <optional>", "#include <string>"]
+    headers = ["#include <memory>", "#include <optional>", "#include <string>"]
     lines = []
     required = []
     inner = []
@@ -192,6 +192,8 @@ def build_object(name, definition, prefix, all_required=False):
     inner = list(map(lambda x: "  {}".format(x), inner))
 
     lines.append("struct {} {{".format(name))
+    lines.append("    using Ptr = std::shared_ptr<{}>;".format(name))
+    lines.append("    using ConstPtr = std::shared_ptr<const {}>;".format(name))
     lines = lines + inner
     lines = lines + members
 
