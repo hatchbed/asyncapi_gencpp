@@ -209,48 +209,51 @@ def build_object(name, definition, prefix, all_required=False):
         resolved_def = resolve_definition(prop_type, prop_def)
         prop_type = resolve_type(prop_type)
         if item_type is not None:
-            lines.append("    for (const auto& item: {}) {{".format(prop_name_snake))
             item_def = resolve_definition(item_type, resolved_def["items"])
             item_type = resolve_type(item_type)
+            conditions = []
             if item_type == "std::string":
                 if "maxLength" in item_def:
-                    lines.append("      if (item.length() > {}) {{".format(item_def["maxLength"]))
-                    lines.append("        return false;")
-                    lines.append("      }")
+                    conditions.append("      if (item.length() > {}) {{".format(item_def["maxLength"]))
+                    conditions.append("        return false;")
+                    conditions.append("      }")
                 if "minLength" in item_def:
-                    lines.append("      if (item.length() < {}) {{".format(item_def["minLength"]))
-                    lines.append("        return false;")
-                    lines.append("      }")
+                    conditions.append("      if (item.length() < {}) {{".format(item_def["minLength"]))
+                    conditions.append("        return false;")
+                    conditions.append("      }")
                 if "enum" in item_def:
-                    lines.append("      bool in_enum = false;")
+                    conditions.append("      bool in_enum = false;")
 
                     if len(item_def["enum"]) > 0:
-                        lines.append('      if (item == "{}") {{'.format(item_def["enum"][0]))
-                        lines.append("        in_enum = true;")
-                        lines.append("      }")
+                        conditions.append('      if (item == "{}") {{'.format(item_def["enum"][0]))
+                        conditions.append("        in_enum = true;")
+                        conditions.append("      }")
                         for enum in item_def["enum"][1:]:
-                            lines.append('      else if (item == "{}") {{'.format(enum))
-                            lines.append("        in_enum = true;")
-                            lines.append("      }")
-                    lines.append("      if (!in_enum) {")
-                    lines.append("        return false;")
-                    lines.append("      }")
+                            conditions.append('      else if (item == "{}") {{'.format(enum))
+                            conditions.append("        in_enum = true;")
+                            conditions.append("      }")
+                    conditions.append("      if (!in_enum) {")
+                    conditions.append("        return false;")
+                    conditions.append("      }")
             elif item_type == "int" or item_type == "double":
                 if "maximum" in item_def:
-                    lines.append("      if (item > {}) {{".format(item_def["maximum"]))
-                    lines.append("        return false;")
-                    lines.append("      }")
+                    conditions.append("      if (item > {}) {{".format(item_def["maximum"]))
+                    conditions.append("        return false;")
+                    conditions.append("      }")
                 if "minimum" in item_def:
-                    lines.append("      if (item < {}) {{".format(item_def["minimum"]))
-                    lines.append("        return false;")
-                    lines.append("      }")
+                    conditions.append("      if (item < {}) {{".format(item_def["minimum"]))
+                    conditions.append("        return false;")
+                    conditions.append("      }")
             elif item_type == "bool":
                 pass
             else:
-                lines.append("      if (!item.isValid()) {")
-                lines.append("        return false;")
-                lines.append("      }")
-            lines.append("    }")
+                conditions.append("      if (!item.isValid()) {")
+                conditions.append("        return false;")
+                conditions.append("      }")
+            if len(conditions) > 0:
+                lines.append("    for (const auto& item: {}) {{".format(prop_name_snake))
+                lines.extend(conditions)
+                lines.append("    }")
         elif prop_name in required or all_required:
             if prop_type == "std::string":
                 if "maxLength" in resolved_def:
