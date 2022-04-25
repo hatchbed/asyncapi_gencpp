@@ -411,15 +411,14 @@ def build_object(name, definition, prefix, all_required=False):
 
         if item_type is None:
             prop_type = resolve_type(prop_type)
-            if prop_name in required or all_required:
-                if prop_type == "std::string" or prop_type == "int" or prop_type == "double" or prop_type == "bool":
-                    lines.append('         _out.{} = j["{}"].get<{}>();'.format(prop_name_snake, prop_name, prop_type))
-                else:
-                    lines.append('        auto _{} = {}::fromJson(j["{}"]);'.format(prop_name_snake, prop_type, prop_name))
-                    lines.append("        if (!_{}) {{".format(prop_name_snake))
-                    lines.append("          return {};")
-                    lines.append("        }")
-                    lines.append("        _out.{} = *_{};".format(prop_name_snake, prop_name_snake))
+            if prop_type == "std::string" or prop_type == "int" or prop_type == "double" or prop_type == "bool":
+                lines.append('         _out.{} = j["{}"].get<{}>();'.format(prop_name_snake, prop_name, prop_type))
+            else:
+                lines.append('        auto _{} = {}::fromJson(j["{}"]);'.format(prop_name_snake, prop_type, prop_name))
+                lines.append("        if (!_{}) {{".format(prop_name_snake))
+                lines.append("          return {};")
+                lines.append("        }")
+                lines.append("        _out.{} = *_{};".format(prop_name_snake, prop_name_snake))
         else:
             item_type = resolve_type(item_type)
             lines.append('        if (!j["{}"].is_array()) {{'.format(prop_name))
