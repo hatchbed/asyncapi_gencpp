@@ -582,14 +582,23 @@ if __name__ == "__main__":
         components[class_name] = definition
 
     # generate headers
+    messages_header = []
+    messages_header.append("#pragma once")
+    messages_header.append("\n/* This file was auto-generated. */\n")
     for name, definition in schemas.items():
         header_src = build_header(name, definition, args.prefix)
         class_name = upper_camel(name)
         header_path = os.path.join(prefix_dir, class_name + ".h")
+        messages_header.append("#include <" + args.prefix + "/" + class_name + ".h>")
         with open(header_path, 'w') as f:
             src = '\n'.join(header_src)
             f.write(src)
             length = len(src.splitlines())
             total_lines = total_lines + length
+    total_lines = total_lines + len(messages_header)
+
+    messages_header_path = os.path.join(prefix_dir, "messages.h")
+    with open(messages_header_path, 'w') as f:
+        f.write('\n'.join(messages_header))
 
     print("\n\n Total lines generated: {}".format(total_lines))
