@@ -3,7 +3,7 @@
   <name>asyncapi_gencpp</name>
   <version>0.1.0</version>
   <description>
-    C++ code generator for Async API messages from a specification file.
+    C++ code generator for serializing and deserializing Async API components and messages based on a specification file.
   </description>
 
   <author email="marcalban@hatchbed.com">Marc Alban</author>

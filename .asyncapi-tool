@@ -1,0 +1,16 @@
+{
+    "title":"asyncapi_gencpp",
+    "description": "C++ code generator for serializing and deserializing Async API components and messages based on a specification file.",
+    "maintainers":[
+        "marcalban", "pjreed"
+    ],
+    "links":{
+        "websiteUrl": "https://github.com/hatchbed/asyncapi_gencpp",
+    },
+    "filters": {
+        "language": "C++",
+        "technology": ["Python"],
+        "category": ["generator"],
+        "isCommercial": false
+    }
+}

@@ -1,5 +1,5 @@
 # asyncapi_gencpp
-C++ code generator for [Async API](https://www.asyncapi.com/) messages from a specification file.
+C++ code generator for serializing and deserializing [Async API](https://www.asyncapi.com/) components and messages based on a specification file.
 
 The generator is implemented as as python3 script with the following usage:
 
